@@ -1,5 +1,17 @@
 # 面部表情识别（FER）项目 - TensorFlow 移植版开发文档
 
+## 快速开始
+
+```bash
+cd /root/autodl-tmp/ML_FinalWork0.3
+
+# 改进模型训练（Dropout + LR 调度 + Early Stopping）
+python train.py network=vgg name=test_improve
+
+# 基线模型训练（无正则化）
+python baseline/train_baseline.py network=vgg_baseline name=baseline
+```
+
 ## 1. 项目概述
 
 本项目是将 [usef-kh/fer](https://github.com/usef-kh/fer) 仓库的 PyTorch 实现移植到 TensorFlow 框架的版本。原项目在 FER2013 数据集上使用 VGG 网络架构实现面部表情识别，达到了 73.28% 的单网络分类准确率（state-of-the-art）。
@@ -19,14 +31,31 @@ ML_FinalWork0.3/
 │   └── fer2013.py          # FER2013 数据集加载、TenCrop、数据管道
 ├── models/
 │   ├── __init__.py
-│   └── vgg.py              # VGG 网络模型（TensorFlow/Keras 实现）
+│   ├── vgg.py              # VGG 网络模型（TensorFlow/Keras 实现）
+│   └── vgg_baseline.py     # VGG 基线模型（无 Dropout）
+├── baseline/
+│   ├── train_baseline.py   # 基线模型训练脚本
+│   └── evaluate_baseline.py# 基线模型评估脚本
+├── output/
+│   ├── baseline/           # 基线模型输出
+│   │   ├── training_log.csv      # 逐 epoch 训练/验证 acc 和 loss
+│   │   ├── accuracy.png          # 准确率曲线图
+│   │   ├── loss.png              # 损失曲线图
+│   │   ├── confusion_matrix.png  # 混淆矩阵可视化
+│   │   └── confusion_matrix.csv  # 混淆矩阵数值
+│   └── improve/            # 改进模型输出
+│       ├── training_log.csv      # 逐 epoch 训练/验证 acc 和 loss
+│       ├── accuracy.png          # 准确率曲线图
+│       ├── loss.png              # 损失曲线图
+│       ├── confusion_matrix.png  # 混淆矩阵可视化
+│       └── confusion_matrix.csv  # 混淆矩阵数值
 ├── utils/
 │   ├── __init__.py
 │   ├── checkpoint.py       # 模型检查点保存与恢复
 │   ├── hparams.py          # 超参数配置
 │   ├── logger.py           # 训练日志记录与可视化
 │   └── setup_network.py    # 网络初始化
-├── train.py                # 训练入口脚本
+├── train.py                # 改进模型训练入口脚本
 ├── evaluate.py             # 评估入口脚本
 ├── requirements.txt        # Python 依赖
 └── DEV_DOC.md              # 本文档
@@ -102,7 +131,7 @@ Flatten → Dense(4096) + Dropout → Dense(4096) + Dropout → Dense(7)
 | weight_decay | 0.0001 | L2 正则化（TF 中通过 kernel_regularizer 实现） |
 | scheduler | ReduceLROnPlateau | patience=5, factor=0.75 |
 | batch_size | 64 | 训练批大小 |
-| epochs | 300 | 最大训练轮数 |
+| epochs | 50 | 最大训练轮数 |
 | dropout | 0.1 | 全连接层 Dropout 率 |
 
 ## 7. 使用方法
@@ -120,17 +149,45 @@ datasets/fer2013/fer2013.csv
 
 ### 训练
 ```bash
+# 改进模型（Dropout + LR 调度 + Early Stopping）
 python train.py network=vgg name=my_experiment
+
+# 基线模型（无 Dropout、无 LR 调度）
+python baseline/train_baseline.py network=vgg_baseline name=baseline
 ```
 
 可选参数：`bs=128`, `lr=0.01`, `n_epochs=100`, `drop=0.2`
+
+训练完成后结果自动保存到 `output/improve/` 或 `output/baseline/`。
 
 ### 评估
 ```bash
 python evaluate.py network=vgg name=my_experiment restore_epoch=100
 ```
 
-## 8. 与原版的主要差异
+## 8. 输出目录说明
+
+训练完成后，结果自动保存到 `output/` 目录下，按模型类型分两个子文件夹：
+
+```
+output/
+├── baseline/               # 基线模型（无 Dropout、无 LR 调度）
+│   ├── training_log.csv    # 逐 epoch 记录：epoch, train_acc, val_acc, train_loss, val_loss
+│   ├── accuracy.png        # 训练/验证准确率曲线
+│   ├── loss.png            # 训练/验证损失曲线
+│   ├── confusion_matrix.png# 测试集混淆矩阵热力图
+│   └── confusion_matrix.csv# 测试集混淆矩阵数值（7x7）
+└── improve/                # 改进模型（Dropout + LR 调度 + Early Stopping）
+    ├── training_log.csv
+    ├── accuracy.png
+    ├── loss.png
+    ├── confusion_matrix.png
+    └── confusion_matrix.csv
+```
+
+两组输出格式完全一致，便于直接对比基线与改进模型的性能差异。
+
+## 9. 与原版的主要差异
 
 1. **数据格式**：TensorFlow 使用 channels_last (NHWC)，PyTorch 使用 channels_first (NCHW)
 2. **TenCrop 实现**：使用 NumPy 预计算所有裁剪，存储为 (N, 10, 40, 40, 1) 张量
@@ -138,7 +195,7 @@ python evaluate.py network=vgg name=my_experiment restore_epoch=100
 4. **混合精度训练**：原版使用 GradScaler，TF 版本暂未启用（可通过 mixed_precision policy 开启）
 5. **检查点格式**：使用 TF SavedModel 权重格式 + JSON 日志，替代 PyTorch 的 .pt 文件
 
-## 9. 后续优化方向
+## 10. 后续优化方向
 
 - 启用 TensorFlow 混合精度训练 (`mixed_precision.set_global_policy('mixed_float16')`)
 - 添加 TensorBoard 回调进行训练监控

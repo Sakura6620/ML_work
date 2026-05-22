@@ -25,6 +25,7 @@ def restore_checkpoint(model, logger, hps):
 
     if os.path.exists(path + '.index'):
         try:
+            model.build((None, 40, 40, 1))
             model.load_weights(path)
             if os.path.exists(logs_path):
                 with open(logs_path, 'r') as f:

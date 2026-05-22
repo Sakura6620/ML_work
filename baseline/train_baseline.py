@@ -12,6 +12,7 @@ from data.fer2013 import get_dataloaders
 from models.vgg_baseline import VggBaseline
 from utils.hparams import setup_hparams
 from utils.logger import Logger
+from utils.checkpoint import save_checkpoint
 
 
 OUTPUT_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'output', 'baseline')
@@ -26,25 +27,10 @@ def train_step(model, images, labels, criterion, optimizer):
     return loss, predictions
 
 
-def evaluate_step(model, images, labels, criterion):
-    if len(images.shape) == 5:
-        bs, ncrops, h, w, c = images.shape
-        images_flat = tf.reshape(images, [-1, h, w, c])
-        outputs = model(images_flat, training=False)
-        outputs = tf.reshape(outputs, [bs, ncrops, -1])
-        outputs = tf.reduce_mean(outputs, axis=1)
-    else:
-        outputs = model(images, training=False)
-    loss = criterion(labels, outputs)
-    return loss, outputs
-
 
 def train_epoch(model, train_ds, criterion, optimizer):
     total_loss, correct, n_samples = 0.0, 0, 0
     for images, labels in train_ds:
-        bs, ncrops, h, w, c = images.shape
-        images = tf.reshape(images, [-1, h, w, c])
-        labels = tf.repeat(labels, repeats=ncrops)
         loss, predictions = train_step(model, images, labels, criterion, optimizer)
         total_loss += loss.numpy() * len(labels)
         preds = tf.argmax(predictions, axis=1, output_type=tf.int32)
@@ -57,7 +43,8 @@ def eval_epoch(model, val_ds, criterion):
     total_loss, correct, n_samples = 0.0, 0, 0
     y_pred, y_gt = [], []
     for images, labels in val_ds:
-        loss, outputs = evaluate_step(model, images, labels, criterion)
+        outputs = model(images, training=False)
+        loss = criterion(labels, outputs)
         total_loss += loss.numpy() * len(labels)
         preds = tf.argmax(outputs, axis=1, output_type=tf.int32)
         correct += tf.reduce_sum(tf.cast(preds == labels, tf.int32)).numpy()
@@ -69,9 +56,8 @@ def eval_epoch(model, val_ds, criterion):
     return acc, avg_loss, y_pred, y_gt
 
 
-def save_results(logger, y_pred, y_gt):
+def save_training_log(logger):
     os.makedirs(OUTPUT_DIR, exist_ok=True)
-
     df = pd.DataFrame({
         'epoch': list(range(1, len(logger.acc_train) + 1)),
         'train_acc': logger.acc_train,
@@ -80,6 +66,10 @@ def save_results(logger, y_pred, y_gt):
         'val_loss': logger.loss_val,
     })
     df.to_csv(os.path.join(OUTPUT_DIR, 'training_log.csv'), index=False)
+
+
+def save_results(logger, y_pred, y_gt):
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
 
     plt.figure()
     plt.plot(logger.acc_train, 'g', label='Train Acc')
@@ -112,6 +102,10 @@ def save_results(logger, y_pred, y_gt):
     tick_marks = np.arange(len(labels_name))
     plt.xticks(tick_marks, labels_name, rotation=45)
     plt.yticks(tick_marks, labels_name)
+    for i in range(len(labels_name)):
+        for j in range(len(labels_name)):
+            plt.text(j, i, str(cm[i, j]), ha='center', va='center',
+                     color='white' if cm[i, j] > cm.max() / 2 else 'black')
     plt.xlabel('Predicted')
     plt.ylabel('True')
     plt.tight_layout()
@@ -120,6 +114,21 @@ def save_results(logger, y_pred, y_gt):
 
     cm_df = pd.DataFrame(cm, index=labels_name, columns=labels_name)
     cm_df.to_csv(os.path.join(OUTPUT_DIR, 'confusion_matrix.csv'))
+
+    history_dir = os.path.join(OUTPUT_DIR, 'history')
+    os.makedirs(history_dir, exist_ok=True)
+    n_epochs = len(logger.acc_train)
+    best_val_acc = max(logger.acc_val)
+    prefix = f'ep{n_epochs}_acc{best_val_acc:.2f}'
+    df = pd.DataFrame({
+        'epoch': list(range(1, n_epochs + 1)),
+        'train_acc': logger.acc_train,
+        'val_acc': logger.acc_val,
+        'train_loss': logger.loss_train,
+        'val_loss': logger.loss_val,
+    })
+    df.to_csv(os.path.join(history_dir, f'{prefix}.csv'), index=False)
+    cm_df.to_csv(os.path.join(history_dir, f'{prefix}_cm.csv'))
 
 
 def run():
@@ -131,7 +140,7 @@ def run():
     optimizer = tf.keras.optimizers.SGD(
         learning_rate=float(hps['lr']), momentum=0.9, nesterov=True)
 
-    train_ds, val_ds, test_ds = get_dataloaders(bs=hps['bs'], augment=False)
+    train_ds, val_ds, test_ds = get_dataloaders(bs=512, augment=False, use_ten_crop=False)
 
     best_acc = 0.0
     early_stop_patience = 10
@@ -149,10 +158,12 @@ def run():
         logger.acc_val.append(acc_v)
 
         print(f"Epoch {epoch+1:3d}\t\tTrain Acc: {acc_tr:.4f}%\t\tVal Acc: {acc_v:.4f}%")
+        save_training_log(logger)
 
         if acc_v > best_acc + 0.1:
             best_acc = acc_v
             no_improve_count = 0
+            save_checkpoint(model, logger, hps, epoch + 1)
         else:
             no_improve_count += 1
 

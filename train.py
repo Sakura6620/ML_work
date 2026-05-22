@@ -20,7 +20,7 @@ OUTPUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'output', 
 def train_step(model, images, labels, criterion, optimizer):
     with tf.GradientTape() as tape:
         predictions = model(images, training=True)
-        loss = criterion(labels, predictions)
+        loss = criterion(labels, predictions) + tf.add_n(model.losses)
     gradients = tape.gradient(loss, model.trainable_variables)
     optimizer.apply_gradients(zip(gradients, model.trainable_variables))
     return loss, predictions
@@ -69,9 +69,8 @@ def eval_epoch(model, val_ds, criterion):
     return acc, avg_loss, y_pred, y_gt
 
 
-def save_results(logger, y_pred, y_gt):
+def save_training_log(logger):
     os.makedirs(OUTPUT_DIR, exist_ok=True)
-
     df = pd.DataFrame({
         'epoch': list(range(1, len(logger.acc_train) + 1)),
         'train_acc': logger.acc_train,
@@ -80,6 +79,10 @@ def save_results(logger, y_pred, y_gt):
         'val_loss': logger.loss_val,
     })
     df.to_csv(os.path.join(OUTPUT_DIR, 'training_log.csv'), index=False)
+
+
+def save_results(logger, y_pred, y_gt):
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
 
     plt.figure()
     plt.plot(logger.acc_train, 'g', label='Train Acc')
@@ -112,6 +115,10 @@ def save_results(logger, y_pred, y_gt):
     tick_marks = np.arange(len(labels_name))
     plt.xticks(tick_marks, labels_name, rotation=45)
     plt.yticks(tick_marks, labels_name)
+    for i in range(len(labels_name)):
+        for j in range(len(labels_name)):
+            plt.text(j, i, str(cm[i, j]), ha='center', va='center',
+                     color='white' if cm[i, j] > cm.max() / 2 else 'black')
     plt.xlabel('Predicted')
     plt.ylabel('True')
     plt.tight_layout()
@@ -120,6 +127,21 @@ def save_results(logger, y_pred, y_gt):
 
     cm_df = pd.DataFrame(cm, index=labels_name, columns=labels_name)
     cm_df.to_csv(os.path.join(OUTPUT_DIR, 'confusion_matrix.csv'))
+
+    history_dir = os.path.join(OUTPUT_DIR, 'history')
+    os.makedirs(history_dir, exist_ok=True)
+    n_epochs = len(logger.acc_train)
+    best_val_acc = max(logger.acc_val)
+    prefix = f'ep{n_epochs}_acc{best_val_acc:.2f}'
+    df = pd.DataFrame({
+        'epoch': list(range(1, n_epochs + 1)),
+        'train_acc': logger.acc_train,
+        'val_acc': logger.acc_val,
+        'train_loss': logger.loss_train,
+        'val_loss': logger.loss_val,
+    })
+    df.to_csv(os.path.join(history_dir, f'{prefix}.csv'), index=False)
+    cm_df.to_csv(os.path.join(history_dir, f'{prefix}_cm.csv'))
 
 
 def run(model, logger, hps):
@@ -163,6 +185,7 @@ def run(model, logger, hps):
                 print(f"  Reducing LR to {new_lr:.6f}")
 
         print(f"Epoch {epoch+1:3d}\t\tTrain Acc: {acc_tr:.4f}%\t\tVal Acc: {acc_v:.4f}%")
+        save_training_log(logger)
 
         if no_improve_count >= early_stop_patience:
             print(f"Early stopping at epoch {epoch+1}, best val acc: {best_acc:.4f}%")

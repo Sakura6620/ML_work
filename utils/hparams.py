@@ -3,13 +3,13 @@ import os
 hps = {
     'network': '',
     'name': '',
-    'n_epochs': 300,
+    'n_epochs': 50,
     'model_save_dir': None,
     'restore_epoch': None,
     'start_epoch': 0,
     'lr': 0.01,
     'save_freq': 20,
-    'drop': 0.1,
+    'drop': 0.3,
     'bs': 64,
 }
 
