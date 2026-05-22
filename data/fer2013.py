@@ -20,7 +20,7 @@ def ten_crop(image, crop_size=40):
     return np.stack(crops).astype(np.float32)
 
 
-def get_dataloaders(path='datasets/fer2013/fer2013.csv', bs=64, augment=True):
+def get_dataloaders(path='datasets/9780a-main/FER-2013/fer2013.csv', bs=64, augment=True):
     fer2013, emotion_mapping = load_data(path)
 
     xtrain, ytrain = prepare_data(fer2013[fer2013['Usage'] == 'Training'])
