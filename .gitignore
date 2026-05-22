@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+*.pyo
+datasets/
+checkpoints/
+output/
+*.egg-info/
+.eggs/
